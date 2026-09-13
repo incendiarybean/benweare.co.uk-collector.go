@@ -56,6 +56,44 @@ const docTemplate = `{
                 }
             }
         },
+        "/news/status": {
+            "get": {
+                "description": "view collector status",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "News"
+                ],
+                "summary": "Show the status of the collector",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/routes.CollectorState"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/news/{articleId}": {
             "get": {
                 "description": "get article by ID",
@@ -124,6 +162,23 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "routes.CollectorState": {
+            "type": "object",
+            "properties": {
+                "lastUpdated": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nextUpdate": {
+                    "type": "string"
+                },
+                "sinceLastUpdated": {
                     "type": "string"
                 }
             }

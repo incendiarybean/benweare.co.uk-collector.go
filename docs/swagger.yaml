@@ -15,6 +15,17 @@ definitions:
       url:
         type: string
     type: object
+  routes.CollectorState:
+    properties:
+      lastUpdated:
+        type: string
+      name:
+        type: string
+      nextUpdate:
+        type: string
+      sinceLastUpdated:
+        type: string
+    type: object
 info:
   contact:
     email: admin@benweare.co.uk
@@ -78,6 +89,31 @@ paths:
           schema:
             type: string
       summary: Obtain a news article by ID
+      tags:
+      - News
+  /news/status:
+    get:
+      description: view collector status
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.CollectorState'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "404":
+          description: Not Found
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Show the status of the collector
       tags:
       - News
 swagger: "2.0"

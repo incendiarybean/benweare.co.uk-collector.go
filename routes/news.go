@@ -225,6 +225,17 @@ func ListArticles(db *sql.DB) http.HandlerFunc {
 	})
 }
 
+// CollectorStatus godoc
+//
+//	@Summary		Show the status of the collector
+//	@Description	view collector status
+//	@Tags			News
+//	@Produce		json
+//	@Success		200	{object}	CollectorState
+//	@Failure		400	{object}	string
+//	@Failure		404	{object}	string
+//	@Failure		500	{object}	string
+//	@Router			/news/status [get]
 func CollectorStatus(db *sql.DB) http.HandlerFunc {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 
