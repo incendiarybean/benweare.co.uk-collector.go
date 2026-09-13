@@ -19,7 +19,8 @@ info:
   contact:
     email: admin@benweare.co.uk
     name: Benjamin Weare
-  description: This is an edge collector variant of the benweare.co.uk-api written in GO
+  description: This is an edge collector variant of the benweare.co.uk-api written
+    in GO
   title: benweare.co.uk-api
   version: "1.0"
 paths:

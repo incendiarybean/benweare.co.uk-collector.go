@@ -138,7 +138,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/v1",
 	Schemes:          []string{},
 	Title:            "benweare.co.uk-api",
-	Description:      "This is a regeneration of benweare.co.uk-api in GO",
+	Description:      "This is an edge collector variant of the benweare.co.uk-api written in GO",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",
