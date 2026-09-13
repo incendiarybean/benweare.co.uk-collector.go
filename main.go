@@ -35,14 +35,17 @@ func main() {
 	// Obtain a new logger
 	logger := slog.New(slog.Default().Handler())
 
+	// Create or connect to a local storage
 	db, err := sql.Open("sqlite", "./store.db")
 	if err != nil {
 		logger.Error("Could not obtain DB.")
 		os.Exit(1)
 	}
 
-	db.Exec("CREATE TABLE IF NOT EXISTS articles (id TEXT primary key, title TEXT, url TEXT, img TEXT, date TEXT, name TEXT)")
+	// Create storage for articles and statistics
+	// Statistics are to record when the collectors were previously ran, between reloads
 	db.Exec("CREATE TABLE IF NOT EXISTS collector_stats (name TEXT primary key, timestamp INT)")
+	db.Exec("CREATE TABLE IF NOT EXISTS articles (id TEXT primary key, title TEXT, url TEXT, img TEXT, date TEXT, name TEXT)")
 
 	// Obtain port from ENV
 	port := os.Getenv("PORT")
@@ -52,6 +55,7 @@ func main() {
 
 	logger.Info(fmt.Sprintf("Starting server with port: %s", port))
 
+	// Register the available routes
 	router := chi.NewRouter()
 	router.Mount("/v1/news", routes.NewsRouter(db))
 	router.Mount("/swagger", routes.DocsRouter())

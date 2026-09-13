@@ -43,10 +43,18 @@ type CollectorStats struct {
 	Timestamp sql.NullInt64
 }
 
+type CollectorState struct {
+	Name             string
+	LastUpdated      string
+	SinceLastUpdated string
+	NextUpdate       string
+}
+
 func NewsCollector(db *sql.DB) {
 
 	row := db.QueryRow("SELECT * FROM collector_stats WHERE `name`='news';")
 
+	// Obtain the previous statistics if they're available
 	stats := &CollectorStats{}
 	err := row.Scan(&stats.Name, &stats.Timestamp)
 	if err != nil {
@@ -59,7 +67,9 @@ func NewsCollector(db *sql.DB) {
 		db.Exec("INSERT INTO collector_stats (name, timestamp) VALUES (?, NULL)", "news")
 	}
 
+	// Infinite loop at a 5 minute interval
 	for {
+
 		time_diff := time.Now().UnixMilli() - stats.Timestamp.Int64
 
 		var last_collected string
@@ -120,6 +130,7 @@ func NewsCollector(db *sql.DB) {
 				statement.Query(article.Id, article.Title, article.Url, article.Img, article.Date, article.Name)
 			}
 
+			stats.Timestamp.Int64 = time.Now().UnixMilli()
 			db.Exec("UPDATE collector_stats SET timestamp=? WHERE name=?", time.Now().UnixMilli(), "news")
 
 			slog.Debug("News collection collected and processed.")
@@ -127,7 +138,7 @@ func NewsCollector(db *sql.DB) {
 			slog.Debug("News collection has not yet expired, skipping.")
 		}
 
-		time.Sleep(5 * time.Minute) // 5 minutes
+		time.Sleep(5 * time.Second) // 5 second(s)
 	}
 }
 
@@ -214,6 +225,34 @@ func ListArticles(db *sql.DB) http.HandlerFunc {
 	})
 }
 
+func CollectorStatus(db *sql.DB) http.HandlerFunc {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+
+		var stats CollectorStats
+		row := db.QueryRow("SELECT * FROM collector_stats WHERE `name`='news';")
+
+		err := row.Scan(&stats.Name, &stats.Timestamp)
+		if err != nil {
+			slog.Error(err.Error())
+			http.Error(response, http.StatusText(502), 502)
+			return
+		}
+
+		response.Header().Set("content-type", "application/json")
+
+		time_diff := time.Now().UnixMilli() - stats.Timestamp.Int64
+
+		next_update := (time.Now().UnixMilli() + int64((5 * time.Minute).Milliseconds())) - time_diff
+
+		json.NewEncoder(response).Encode(CollectorState{
+			Name:             stats.Name,
+			LastUpdated:      string(time.UnixMilli(stats.Timestamp.Int64).Format(time.RFC3339)),
+			SinceLastUpdated: fmt.Sprintf("%v(s)", time_diff/1000),
+			NextUpdate:       string(time.UnixMilli(next_update).Format(time.RFC3339)),
+		})
+	})
+}
+
 // Obtain contextual values from the path, e.g. ArticleId
 func newsContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -227,7 +266,8 @@ func newsContext(next http.Handler) http.Handler {
 func NewsRouter(db *sql.DB) http.Handler {
 	router := chi.NewRouter()
 	router.Route("/", func(router chi.Router) {
-		router.Get("/", ListArticles(db)) // GET /news
+		router.Get("/", ListArticles(db))          // GET /news
+		router.Get("/status", CollectorStatus(db)) // View when the data was last refreshed
 
 		router.Route("/{articleId}", func(router chi.Router) {
 			router.Use(newsContext)

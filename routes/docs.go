@@ -12,8 +12,8 @@ import (
 
 func DocsRouter() http.Handler {
 	router := chi.NewRouter()
-	router.Get("/doc.json", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "docs/swagger.json")
+	router.Get("/doc.json", func(response http.ResponseWriter, request *http.Request) {
+		http.ServeFile(response, request, "docs/swagger.json")
 	})
 
 	name, err := os.Hostname()
