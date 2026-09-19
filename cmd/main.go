@@ -6,13 +6,48 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
-	"github.com/benweare.co.uk-api/routes"
-	"github.com/go-chi/chi"
+	"github.com/benweare.co.uk-api/internal/routes"
+	"github.com/go-chi/chi/v5"
 	"github.com/lmittmann/tint"
+	"golang.org/x/net/html"
 	_ "modernc.org/sqlite"
 )
+
+// func getElementByAttr()
+
+func getNews() {
+	response, err := http.DefaultClient.Get("https://www.pcgamer.com/uk/news/")
+	if err != nil {
+		slog.Error(fmt.Sprintf("Error: %s", err.Error()))
+	}
+
+	doc := html.NewTokenizer(response.Body)
+	if err != nil {
+		slog.Error(fmt.Sprintf("Error: %s", err.Error()))
+	}
+
+	for {
+		if doc.Next() == html.ErrorToken {
+			break
+		}
+
+		token := doc.Token()
+		attributes := token.Attr
+
+		for _, attr := range attributes {
+			if attr.Key == "class" {
+				classes := strings.Split(attr.Val, " ")
+				if slices.Contains(classes, "listingResult") {
+					slog.Info(fmt.Sprintf("%s", attr.Val))
+				}
+			}
+		}
+	}
+}
 
 // @title			benweare.co.uk-api
 // @version		1.0
@@ -60,10 +95,11 @@ func main() {
 	router.Mount("/v1/news", routes.NewsRouter(db))
 	router.Mount("/swagger", routes.DocsRouter())
 
-	go routes.NewsCollector(db)
+	getNews()
+	// go routes.NewsCollector(db)
 
-	// Reassign port using string formatting
-	port = fmt.Sprintf(":%s", port)
+	// // Reassign port using string formatting
+	// port = fmt.Sprintf(":%s", port)
 
-	http.ListenAndServe(port, router)
+	// http.ListenAndServe(port, router)
 }

@@ -1,0 +1,14 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "This is an edge collector variant of the benweare.co.uk-api written in GO",
+        "title": "benweare.co.uk-api",
+        "contact": {
+            "name": "Benjamin Weare",
+            "email": "admin@benweare.co.uk"
+        },
+        "version": "1.0"
+    },
+    "basePath": "/v1",
+    "paths": {}
+}
