@@ -4,142 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type Article struct {
-	Id    string `json:"id"`
-	Url   string `json:"url"`
-	Title string `json:"title"`
-	Img   string `json:"img"`
-	Date  string `json:"date"`
-	Name  string `json:"name"`
-}
-
-type ResponseItems struct {
-	Items []Article
-}
-
-type ResponseLink struct {
-	Action string
-	Href   string
-}
-
-type ApiResponse struct {
-	Response    ResponseItems
-	Description string
-	Timestamp   string
-	Link        ResponseLink
-}
-
-type CollectorStats struct {
-	Name      string
-	Timestamp sql.NullInt64
-}
-
-type CollectorState struct {
-	Name             string
-	LastUpdated      string
-	SinceLastUpdated string
-	NextUpdate       string
-}
-
-func NewsCollector(db *sql.DB) {
-
-	row := db.QueryRow("SELECT * FROM collector_stats WHERE `name`='news';")
-
-	// Obtain the previous statistics if they're available
-	stats := &CollectorStats{}
-	err := row.Scan(&stats.Name, &stats.Timestamp)
-	if err != nil {
-		if err != sql.ErrNoRows {
-			slog.Error(fmt.Sprintf("Error obtaining previous collection date: %s", err))
-			return
-		}
-
-		slog.Debug("No collector stats available for News yet...")
-		db.Exec("INSERT INTO collector_stats (name, timestamp) VALUES (?, NULL)", "news")
-	}
-
-	// Infinite loop at a 5 minute interval
-	for {
-
-		time_diff := time.Now().UnixMilli() - stats.Timestamp.Int64
-
-		var last_collected string
-		if stats.Timestamp.Valid {
-			last_collected = string(time.UnixMilli(stats.Timestamp.Int64).Format(time.RFC3339))
-		} else {
-			last_collected = "uncollected"
-		}
-
-		slog.Debug(fmt.Sprintf("News was last collected at: %s - %s(s) ago.", last_collected, fmt.Sprint(time_diff/1000)))
-		if stats.Timestamp.Int64 == 0 || time_diff > (5*time.Minute).Milliseconds() {
-			slog.Debug("News collection has expired, running collector...")
-
-			slog.Debug("Requesting news collection from Node...")
-
-			client := &http.Client{}
-			url := "https://benweare.co.uk/api/news/articles"
-			req, err := http.NewRequest("GET", url, nil)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Error building request: %s", err))
-				continue
-			}
-
-			req.Header.Add("Content-Type", "application/json")
-
-			resp, err := client.Do(req)
-			if err != nil {
-				slog.Error(fmt.Sprintf("Error making request: %s", err))
-				continue
-			}
-
-			defer resp.Body.Close()
-
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				slog.Debug(string(body))
-				slog.Error(fmt.Sprintf("Error reading response body: %s", err))
-				continue
-			}
-
-			var net ApiResponse
-			json_err := json.Unmarshal(body, &net)
-			if json_err != nil {
-				slog.Debug(string(body))
-				slog.Error(fmt.Sprintf("Error converting JSON to API Response: %s", err))
-				return
-			}
-
-			statement, err := db.Prepare("INSERT INTO articles (id, title, url, img, date, name) VALUES (?, ?, ?, ?, ?, ?)")
-			if err != nil {
-				slog.Error(fmt.Sprintf("Error generating prepared statement: %s", err))
-				return
-			}
-
-			for index := range net.Response.Items {
-				article := net.Response.Items[index]
-
-				statement.Query(article.Id, article.Title, article.Url, article.Img, article.Date, article.Name)
-			}
-
-			stats.Timestamp.Int64 = time.Now().UnixMilli()
-			db.Exec("UPDATE collector_stats SET timestamp=? WHERE name=?", time.Now().UnixMilli(), "news")
-
-			slog.Debug("News collection collected and processed.")
-		} else {
-			slog.Debug("News collection has not yet expired, skipping.")
-		}
-
-		time.Sleep(5 * time.Second) // 5 second(s)
-	}
+	Id          string `json:"id"`
+	Hash        string `json:"hash"`
+	Outlet      string `json:"outlet"`
+	Title       string `json:"title"`
+	Img         string `json:"img,omitempty"`
+	Href        string `json:"href,omitempty"`
+	Timestamp   string `json:"timestamp,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // GetArticle godoc
@@ -166,8 +45,7 @@ func GetArticle(db *sql.DB) http.HandlerFunc {
 		row := db.QueryRow("SELECT * FROM articles WHERE id=?", articleId)
 
 		article := &Article{}
-		err := row.Scan(&article.Id, &article.Title, &article.Url, &article.Img, &article.Date, &article.Name)
-		if err != nil {
+		if err := row.Scan(&article.Id, &article.Hash, &article.Title, &article.Href, &article.Img, &article.Timestamp, &article.Outlet, &article.Description); err != nil {
 			slog.Error(err.Error())
 			http.Error(response, http.StatusText(422), 422)
 			return
@@ -176,6 +54,60 @@ func GetArticle(db *sql.DB) http.HandlerFunc {
 		response.Header().Set("content-type", "application/json")
 
 		json.NewEncoder(response).Encode(article)
+	})
+}
+
+// GetOutlet godoc
+//
+//	@Summary		Obtain news articles by outlet
+//	@Description	Obtain news articles by outlet
+//	@Tags			News
+//	@Produce		json
+//	@Param			outlet	path		string	true	"Outlet Name"
+//	@Success		200			{object}	Article
+//	@Failure		400			{object}	string
+//	@Failure		404			{object}	string
+//	@Failure		500			{object}	string
+//	@Router			/news/outlets/{outlet} [get]
+func GetOutletsArticles(db *sql.DB) http.HandlerFunc {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		ctx := request.Context()
+
+		outlet, ok := ctx.Value("outlet").(string)
+		if !ok {
+			http.Error(response, http.StatusText(422), 422)
+			return
+		}
+
+		rows, err := db.Query("SELECT * FROM articles WHERE outlet=? COLLATE NOCASE", outlet)
+		if err != nil {
+			slog.Error("Could not query table.")
+			http.Error(response, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+			return
+		}
+
+		var articles []Article
+
+		for rows.Next() {
+			var article Article
+
+			if err := rows.Scan(&article.Id, &article.Hash, &article.Title, &article.Href, &article.Img, &article.Timestamp, &article.Outlet, &article.Description); err != nil {
+				slog.Error(err.Error())
+				http.Error(response, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+				return
+			}
+			articles = append(articles, article)
+		}
+
+		if err = rows.Err(); err != nil {
+			slog.Error(err.Error())
+			http.Error(response, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+			return
+		}
+
+		response.Header().Set("content-type", "application/json")
+
+		json.NewEncoder(response).Encode(articles)
 	})
 }
 
@@ -195,19 +127,21 @@ func ListArticles(db *sql.DB) http.HandlerFunc {
 		rows, err := db.Query("SELECT * FROM articles;")
 		if err != nil {
 			slog.Error("Could not query table.")
-			http.Error(response, http.StatusText(502), 502)
+			http.Error(response, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
 			return
 		}
-		defer rows.Close()
+		defer func() {
+			_ = rows.Close()
+		}()
 
 		var articles []Article
 
 		for rows.Next() {
 			var article Article
 
-			if err := rows.Scan(&article.Id, &article.Title, &article.Url, &article.Img, &article.Date, &article.Name); err != nil {
+			if err := rows.Scan(&article.Id, &article.Hash, &article.Title, &article.Href, &article.Img, &article.Timestamp, &article.Outlet, &article.Description); err != nil {
 				slog.Error(err.Error())
-				http.Error(response, http.StatusText(502), 502)
+				http.Error(response, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
 				return
 			}
 			articles = append(articles, article)
@@ -215,60 +149,32 @@ func ListArticles(db *sql.DB) http.HandlerFunc {
 
 		if err = rows.Err(); err != nil {
 			slog.Error(err.Error())
-			http.Error(response, http.StatusText(502), 502)
+			http.Error(response, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
 			return
 		}
 
 		response.Header().Set("content-type", "application/json")
 
-		json.NewEncoder(response).Encode(articles)
-	})
-}
-
-// CollectorStatus godoc
-//
-//	@Summary		Show the status of the collector
-//	@Description	view collector status
-//	@Tags			News
-//	@Produce		json
-//	@Success		200	{object}	CollectorState
-//	@Failure		400	{object}	string
-//	@Failure		404	{object}	string
-//	@Failure		500	{object}	string
-//	@Router			/news/status [get]
-func CollectorStatus(db *sql.DB) http.HandlerFunc {
-	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-
-		var stats CollectorStats
-		row := db.QueryRow("SELECT * FROM collector_stats WHERE `name`='news';")
-
-		err := row.Scan(&stats.Name, &stats.Timestamp)
-		if err != nil {
+		if err = json.NewEncoder(response).Encode(articles); err != nil {
 			slog.Error(err.Error())
-			http.Error(response, http.StatusText(502), 502)
+			http.Error(response, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
 			return
 		}
-
-		response.Header().Set("content-type", "application/json")
-
-		time_diff := time.Now().UnixMilli() - stats.Timestamp.Int64
-
-		next_update := (time.Now().UnixMilli() + int64((5 * time.Minute).Milliseconds())) - time_diff
-
-		json.NewEncoder(response).Encode(CollectorState{
-			Name:             stats.Name,
-			LastUpdated:      string(time.UnixMilli(stats.Timestamp.Int64).Format(time.RFC3339)),
-			SinceLastUpdated: fmt.Sprintf("%v(s)", time_diff/1000),
-			NextUpdate:       string(time.UnixMilli(next_update).Format(time.RFC3339)),
-		})
 	})
 }
 
 // Obtain contextual values from the path, e.g. ArticleId
 func newsContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		// Define param names
 		articleId := chi.URLParam(request, "articleId")
+		outletName := chi.URLParam(request, "outlet")
+
+		// Add params to context
 		ctx := context.WithValue(request.Context(), "article", articleId)
+		ctx = context.WithValue(ctx, "outlet", outletName)
+
+		// Provide the context to the next stage
 		next.ServeHTTP(response, request.WithContext(ctx))
 	})
 }
@@ -277,13 +183,55 @@ func newsContext(next http.Handler) http.Handler {
 func NewsRouter(db *sql.DB) http.Handler {
 	router := chi.NewRouter()
 	router.Route("/", func(router chi.Router) {
-		router.Get("/", ListArticles(db))          // GET /news
-		router.Get("/status", CollectorStatus(db)) // View when the data was last refreshed
+		router.Get("/", ListArticles(db)) // GET /news
 
 		router.Route("/{articleId}", func(router chi.Router) {
 			router.Use(newsContext)
 
 			router.Get("/", GetArticle(db))
+		})
+
+		router.Route("/outlets", func(router chi.Router) {
+			router.Use(newsContext)
+
+			router.Get("/", func(response http.ResponseWriter, request *http.Request) {
+				rows, err := db.Query("SELECT DISTINCT outlet FROM articles;")
+				if err != nil {
+					slog.Error("Could not query table.")
+					http.Error(response, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+					return
+				}
+
+				var articles []string
+
+				for rows.Next() {
+					var article string
+
+					if err := rows.Scan(&article); err != nil {
+						slog.Error(err.Error())
+						http.Error(response, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+						return
+					}
+					articles = append(articles, article)
+				}
+
+				// slog.Info(strings.Join(outlets, ""))
+
+				if err = rows.Err(); err != nil {
+					slog.Error(err.Error())
+					http.Error(response, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+					return
+				}
+				response.Header().Set("content-type", "application/json")
+
+				if err = json.NewEncoder(response).Encode(articles); err != nil {
+					slog.Error(err.Error())
+					http.Error(response, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+					return
+				}
+			})
+
+			router.Get("/{outlet}", GetOutletsArticles(db))
 		})
 
 	})
